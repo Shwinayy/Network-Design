@@ -1,0 +1,28 @@
+python3 rdt30_receiver.py --port 5000 --out output.bmp
+python3 rdt30_sender.py --host 127.0.0.1 --port 5000 --in input.bmp
+
+
+python3 rdt30_experiment.py --in input.bmp --out output.bmp --option 1
+python3 rdt30_experiment.py --in input.bmp --out output.bmp --option 2
+python3 rdt30_experiment.py --in input.bmp --out output.bmp --option 3
+python3 rdt30_experiment.py --in input.bmp --out output.bmp --option 4
+python3 rdt30_experiment.py --in input.bmp --out output.bmp --option 5
+
+
+
+
+SANITY CHECK(OPTIONAL):
+# Option 1: no loss / no errors
+python3 rdt30_sender.py --host 127.0.0.1 --port 5000 --in input.bmp
+
+# Option 2: ACK bit-error
+python3 rdt30_sender.py --host 127.0.0.1 --port 5000 --in input.bmp --ack-error 0.2
+
+# Option 3: DATA bit-error
+python3 rdt30_receiver.py --port 5000 --out output.bmp --data-error 0.2
+
+# Option 4: ACK loss
+python3 rdt30_sender.py --host 127.0.0.1 --port 5000 --in input.bmp --ack-loss 0.2
+
+# Option 5: DATA loss
+python3 rdt30_receiver.py --port 5000 --out output.bmp --data-loss 0.2
