@@ -1,0 +1,102 @@
+PHASE 5 DEMO SCRIPT
+
+SETUP
+Download common.py and packet.py into the same folder as TCP_Sender.py and TCP_Rciever.py
+
+Open TWO terminals
+
+Terminal 1 (Receiver):
+cd C:\NetworkDesign\Phase5
+
+Terminal 2 (Sender):
+cd C:\NetworkDesign\Phase5
+
+INTRO (READ THIS)
+
+“This is our Phase 5 implementation of the TCP over UDP.
+We implemented TCP transfer, Flow-control-limited transfer, slow start behavior, and RENO fast retransmission. Time-out congestion control.
+We also support all five required scenarios including loss and congestion.”
+
+Note: You can turn on --debug on both sender and receiver to see ACKs and states 
+
+Normal TCP Transfer 1 (NO LOSS / NO ERROR)
+
+Terminal 1 (Receiver):
+python src/receiver.py --out test.txt 
+
+Terminal 2 (Sender):
+python src/sender.py --in sample_input.bin
+
+
+Flow-control-limited Transfer (Small Reciever Window)
+
+Terminal 1 (Receiver):
+python src/receiver.py --out test.txt --rwnd 3 --debug
+
+Terminal 2 (Sender):
+python src/sender.py --in sample_input.bin --debug
+
+
+Slow Start Behavior:
+
+Terminal 1 (Receiver):
+python src/receiver.py --out test.txt --loss 0.0 --debug
+
+Terminal 2 (Sender):
+python src/sender.py --in sample_input.bin --debug
+
+
+RENO Fast Retransmit
+
+Terminal 1 (Receiver):
+python src/receiver.py --out test.txt --loss 0.4 --debug
+
+Terminal 2 (Sender):
+python src/sender.py --in sample_input.bin --debug
+
+
+Timeout Recovery
+
+Terminal 1 (Receiver):
+python src/receiver.py --out test.txt --loss 0.6 --debug
+
+Terminal 2 (Sender):
+python src/sender.py --in sample_input.bin --debug
+
+Download (keep in the same folder):
+Chart_1.py
+Chart_2.py
+Chart_3.py
+
+common.py (in git src phase 5 or 4)
+packet.py (in git src phase 5 or 4)
+
+phase_1_b_client.py (In git under phase 1, Daniel, src)
+phase_1_b_server.py (In git under phase 1, Daniel, src)
+
+rdt22_receiver.py (In git under phase 2, src)
+rdt22_server.py (In git under phase 2, src)
+
+rdt30_receiver.py (In git under phase 3, src)
+rdt30_sender.py (In git under phase 3, src)
+
+receiver.py (In git under phase 4, src)
+sender.py (In git under phase 4, src)
+
+TCP_Reciever.py (In git under phase 5, src)
+TCP_Sender.py (In git under phase 5, src)
+
+IMPORTANT: Create a new folder in the same location as these files named "new_results"
+
+Run:
+Python chart_1.py
+-chart1_loss.csv
+-chart1.png
+
+Python Chart_2.py
+-cwnd_log_chart_2.csv
+-chart2_cwnd.png
+
+Python Chart_3.py
+-chart3_phase_compare.csv
+-chart3.png
