@@ -1,0 +1,125 @@
+# EECE 4830 – Phase 2: RDT 2.2 over UDP
+
+This project implements Reliable Data Transfer (RDT 2.2) over an unreliable UDP channel with simulated bit errors.
+
+It supports:
+- Sequence numbers (0/1)
+- Internet checksum
+- ACK-only protocol (NAK-free)
+- Stop-and-wait operation
+- ACK corruption simulation (Option 2)
+- DATA corruption simulation (Option 3)
+- Performance experiments and plots
+
+------------------------------------------------------------
+REQUIREMENTS
+------------------------------------------------------------
+
+• Python 3 installed  
+• matplotlib (for plotting)
+
+Install matplotlib if needed:
+    python3 -m pip install matplotlib
+
+------------------------------------------------------------
+FILES INCLUDED
+------------------------------------------------------------
+
+rdt22_sender.py  
+rdt22_receiver.py  
+rdt22_experiment.py  
+input.bmp  (or use your own BMP file)
+
+------------------------------------------------------------
+PART A — RUN A SINGLE TRANSFER (2 TERMINALS)
+------------------------------------------------------------
+
+OPTION 1: No bit errors (baseline)
+
+Terminal 1 (Receiver):
+    python3 rdt22_receiver.py --port 5000 --out output.bmp
+
+Terminal 2 (Sender):
+    python3 rdt22_sender.py --host 127.0.0.1 --port 5000 --in input.bmp
+
+DONE when:
+• Sender prints: [SENDER] done in ... s
+• Receiver prints: [RECEIVER] complete
+• output.bmp is created
+
+
+------------------------------------------------------------
+OPTION 2: ACK packet bit-error (corrupt ACK at sender)
+------------------------------------------------------------
+
+Terminal 1 (Receiver):
+    python3 rdt22_receiver.py --port 5000 --out output.bmp
+
+Terminal 2 (Sender) – example 20% ACK corruption:
+    python3 rdt22_sender.py --host 127.0.0.1 --port 5000 --in input.bmp --ack-error 0.20
+
+
+------------------------------------------------------------
+OPTION 3: DATA packet bit-error (corrupt DATA at receiver)
+------------------------------------------------------------
+
+Terminal 1 (Receiver) – example 20% DATA corruption:
+    python3 rdt22_receiver.py --port 5000 --out output.bmp --data-error 0.20
+
+Terminal 2 (Sender):
+    python3 rdt22_sender.py --host 127.0.0.1 --port 5000 --in input.bmp
+
+
+------------------------------------------------------------
+PART B — GENERATE REQUIRED PLOTS (ONE TERMINAL ONLY)
+------------------------------------------------------------
+
+This script automatically:
+• Starts receiver
+• Runs sender
+• Measures completion time
+• Averages multiple runs
+• Saves CSV results
+• Generates PNG plot
+
+IMPORTANT: Only use ONE terminal for this section. IF YOU DON'T WANT TO WAIT FOREVER, DECREASE THE SIZE OF THE RUNS WHEN EXECUTING THE LINE OF CODE BELOW
+
+OPTION 1 Plot (baseline):
+    python3 rdt22_experiment.py --in input.bmp --out output.bmp --option 1 --runs 5 --port 5000
+
+OPTION 2 Plot (ACK corruption):
+    python3 rdt22_experiment.py --in input.bmp --out output.bmp --option 2 --runs 5 --port 5000
+
+OPTION 3 Plot (DATA corruption):
+    python3 rdt22_experiment.py --in input.bmp --out output.bmp --option 3 --runs 5 --port 5000
+
+
+Output files created:
+• results_optionX.csv
+• plot_optionX.png
+
+DONE when:
+    Wrote results_optionX.csv and plot_optionX.png
+
+
+------------------------------------------------------------
+TROUBLESHOOTING
+------------------------------------------------------------
+
+Matplotlib error:
+    ModuleNotFoundError: No module named 'matplotlib'
+
+Fix:
+    python3 -m pip install matplotlib
+
+
+Port already in use:
+Use a different port (example 5001) in ALL commands:
+    python3 rdt22_receiver.py --port 5001 --out output.bmp
+    python3 rdt22_sender.py --host 127.0.0.1 --port 5001 --in input.bmp
+
+
+Runs taking too long at high error rates:
+The experiment script has a 10-second timeout per run.
+Timed-out runs are recorded as TIMEOUT and skipped in the plot.
+
