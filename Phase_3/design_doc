@@ -1,0 +1,584 @@
+# Network Design Project – Phase 3 Design Document
+
+**Purpose:** This document summarizes our team’s completed Phase 3 implementation. It stays lightweight, concrete, and directly tied to the Phase 3 requirements.
+
+**Team Name:** AC/DC  
+**Members:**  
+- Chris Worthley — chris_worthley@student.uml.edu  
+- Daniel Burns — daniel_burns3@student.uml.edu  
+- Ashwin Srinivasan — Ashwin_Srinivasan@student.uml.edu  
+
+**GitHub Repo URL:** https://github.com/danieljb400/Network_and_Design/tree/main/Phase_3  
+**Phase:** 3 / 5  
+**Submission Date:** March 18, 2026  
+**Version:** v1  
+
+---
+
+## 0) Executive summary
+
+In Phase 3, our team extends the reliable data transfer system from Phase 2 into a full **RDT 3.0 stop-and-wait protocol** over UDP. The major addition in this phase is support for **packet loss recovery**, while preserving the Phase 2 handling for **bit corruption** through checksums, sequence numbers, and ACK-based retransmission behavior. Our sender includes a retransmission timer so it recovers from both lost DATA packets and lost ACK packets, which is the defining feature of RDT 3.0. The receiver remains logically aligned with the RDT 2.2 receiver, meaning it accepts only the expected sequence number, discards corrupted or unexpected packets, and sends the most recent valid ACK when needed. We validate completion of this phase through three methods: functional demo scenarios, byte-for-byte file verification between sent and received files, and performance experiments that measure average file transfer completion time across all five required options from 0% to 95% error/loss in 5% increments. The resulting CSV files and plots are included in the repository under `results/`. This phase is complete because the protocol correctly transfers a file under all required scenarios and produces repeatable experiment outputs.
+
+---
+
+## 1) Phase requirements
+
+### 1.1 Demo deliverable
+
+We submit a screen recording demonstrating the required scenarios.
+
+- **Private YouTube link:** 
+  - **Link:**
+  - Everything running & option 1: https://youtu.be/V5WsjYTzxyA
+  - Option 2&3: https://youtu.be/6Hx8FIdVKXo
+  - Option 4: https://youtu.be/6p5ComKCd9g
+  - Option 5: takes too long to finish on Ashwin's mac. 
+
+### 1.2 Required demo scenarios
+
+| Scenario | What is injected / configured | Expected observable behavior | What appears in the video |
+|---|---|---|---|
+| 1 | No loss, no bit-errors (`--ack-error 0 --ack-loss 0 --data-error 0 --data-loss 0`) | File transfers normally with no retransmissions required | Sender and receiver run once, transfer completes quickly, output file matches input |
+| 2 | ACK corruption at sender (`--ack-error > 0`) | Sender ignores corrupted ACKs and retransmits on timeout until a valid ACK arrives | Successful file delivery despite intentionally corrupted ACK packets |
+| 3 | DATA corruption at receiver (`--data-error > 0`) | Receiver detects corruption via checksum, discards the bad packet, and re-ACKs the last valid packet | Sender retransmits and transfer still completes correctly |
+| 4 | ACK loss at sender (`--ack-loss > 0`) | Sender experiences missing ACK events and recovers using the retransmission timer | Visible retransmission behavior with eventual success |
+| 5 | DATA loss at receiver (`--data-loss > 0`) | Receiver intentionally drops some DATA packets, sender times out and retransmits | Transfer completes even with dropped DATA packets |
+
+### 1.3 Required figures / plots
+
+| Figure/Plot | X-axis | Y-axis | Sweep range + step | Data source | Output filename |
+|---|---|---|---|---|---|
+| Option 1 completion time plot | Error/loss rate | Average completion time (s) | 0.00 to 0.95 in 0.05 steps | `results_option1.csv` | `plot_option1.png` |
+| Option 2 completion time plot | ACK corruption rate | Average completion time (s) | 0.00 to 0.95 in 0.05 steps | `results_option2.csv` | `plot_option2.png` |
+| Option 3 completion time plot | DATA corruption rate | Average completion time (s) | 0.00 to 0.95 in 0.05 steps | `results_option3.csv` | `plot_option3.png` |
+| Option 4 completion time plot | ACK loss rate | Average completion time (s) | 0.00 to 0.95 in 0.05 steps | `results_option4.csv` | `plot_option4.png` |
+| Option 5 completion time plot | DATA loss rate | Average completion time (s) | 0.00 to 0.95 in 0.05 steps | `results_option5.csv` | `plot_option5.png` |
+
+---
+
+## 2) Phase plan
+
+### 2.1 Scope
+
+- **New behaviors added:**
+  - Retransmission timer in the sender for RDT 3.0 timeout recovery
+  - ACK loss simulation at the sender
+  - DATA loss simulation at the receiver
+  - Automated experiment runner for completion-time measurement across five Phase 3 scenarios
+  - Plot generation from averaged experimental data
+
+- **Behaviors unchanged from previous phase:**
+  - UDP socket communication model
+  - Stop-and-wait sequence numbering using alternating bit values `0` and `1`
+  - Internet-style checksum validation
+  - ACK-driven reliability logic for corruption handling
+  - Receiver writes in-order data only
+
+- **Out of scope:**
+  - Pipelined protocols such as Go-Back-N or Selective Repeat
+  - Sliding windows larger than one packet
+  - Congestion control
+  - Dynamic timeout estimation
+  - Multi-file transfer in a single connection
+
+### 2.2 Acceptance criteria
+
+- [x] Sender and receiver run from CLI with standard arguments
+- [x] Sender retransmits when ACKs are lost
+- [x] Sender retransmits when DATA packets are lost
+- [x] Corrupted ACK packets are ignored safely
+- [x] Corrupted DATA packets are detected and rejected safely
+- [x] Receiver writes the output file in correct order
+- [x] Output file matches input file byte-for-byte
+- [x] EOF transfer completes without deadlock
+- [x] All five required scenarios are demonstrated in the video
+- [x] CSV files and plots are generated for all five options
+- [x] Each plotted point is averaged over 5 runs
+- [x] Re-running experiments with the same seed gives reproducible behavior
+
+### 2.3 Work breakdown
+
+- **Workstream A:** Core sender-side RDT 3.0 logic, timer behavior, ACK corruption/loss handling  
+  **Owner:** Chris Worthley
+- **Workstream B:** Receiver logic validation, DATA corruption/loss handling, output reconstruction checks  
+  **Owner:** Daniel Burns
+- **Workstream C:** Experiment automation, CSV/plot generation, README and reproducibility documentation  
+  **Owner:** Ashwin Srinivasan
+
+---
+
+## 3) Architecture + state diagrams
+
+### 3.1 State diagram evolution
+
+For Phase 3, we begin from the Phase 2 stop-and-wait design and extend only the sender-side logic needed for timeout-based retransmission. The most important state change is that after sending a packet, the sender waits for either a valid ACK or a timeout event. If a timeout occurs, the sender retransmits the same packet and remains in the same logical wait state until the correct ACK arrives. The receiver state machine remains effectively the same as RDT 2.2: it accepts only the expected sequence number, rejects corrupt packets, rejects duplicates, and ACKs the last correctly received packet.
+
+We include both:
+- a **previous-phase diagram** showing the RDT 2.2 baseline
+- a **current-phase diagram** showing the Phase 3 sender timeout transition
+
+**Previous phase concept:**
+- Send packet with current seq
+- Wait for ACK
+- If ACK valid and expected: toggle seq and continue
+- If ACK corrupt or wrong: retransmit
+
+**Current phase concept:**
+- Send packet with current seq and start timer
+- Wait for ACK or timeout
+- If valid expected ACK: stop timer, toggle seq, continue
+- If corrupt ACK, wrong ACK, lost ACK, or timeout: retransmit same packet
+
+### 3.2 Component responsibilities
+
+- **Sender**
+  - Reads the input file in fixed-size chunks
+  - Builds DATA packets with headers, checksum, payload, and EOF marker
+  - Sends one packet at a time over UDP
+  - Waits for ACKs and validates them
+  - Retransmits packets when ACKs are corrupted, lost, invalid, or delayed beyond timeout
+  - Terminates only after valid ACK of the EOF packet
+
+- **Receiver**
+  - Listens for incoming DATA packets
+  - Simulates DATA corruption or DATA loss when configured
+  - Validates packet checksum and expected sequence number
+  - Writes only correct in-order payloads to the output file
+  - Sends duplicate ACK for corrupt, duplicate, or out-of-order packets
+  - Stops after receiving a valid EOF packet with the expected sequence
+
+- **Shared modules/utilities**
+  - **packet encode/decode:** packet packing and unpacking with a fixed 7-byte header
+  - **checksum:** 16-bit Internet checksum across header and payload
+  - **logging/timing:** sender timing output and experiment measurement
+  - **CLI/config parsing:** `argparse` handling for ports, files, timeout, chunk size, and injection rates
+
+### 3.3 Message flow overview
+
+```text
+[input file] -> Sender -> UDP channel -> Receiver -> [output file]
+                  ^                          |
+                  |----------- ACK ----------|
+```
+
+More detailed stop-and-wait flow:
+
+```text
+Sender reads chunk
+    |
+    v
+Create DATA packet (seq = 0 or 1)
+    |
+    v
+Send DATA --------------------------> Receiver validates packet
+    |                                      |
+    |                                      +--> if expected + not corrupt: write payload, send ACK(seq)
+    |                                      |
+    |                                      +--> else: send duplicate ACK(last good seq)
+    |
+    v
+Wait for ACK / timeout
+    |
+    +--> valid ACK(seq) received -> toggle seq -> next chunk
+    |
+    +--> corrupt/lost/wrong ACK or timeout -> retransmit same DATA
+```
+
+---
+
+## 4) Packet format
+
+### 4.1 Packet types
+
+The protocol uses the following on-the-wire packet types:
+
+- **DATA packet**
+  - Carries file payload bytes
+  - May also carry an EOF marker when `flags` includes EOF and payload length is zero
+
+- **ACK packet**
+  - Acknowledges the last correctly received DATA packet sequence number
+
+- **EOF marker**
+  - Implemented as a DATA packet with:
+    - zero-length payload
+    - `FLAG_EOF = 0x01`
+
+### 4.2 Header fields
+
+Our implementation uses a **7-byte fixed header** followed by a binary-safe payload.
+
+| Field | Size | Type | Description | Notes |
+|---|---:|---|---|---|
+| `type` | 1 byte | unsigned int | Packet type: DATA or ACK | `0 = DATA`, `1 = ACK` |
+| `seq` | 1 byte | unsigned int | Sequence number | Alternating bit: `0` or `1` |
+| `len` | 2 bytes | unsigned int | Payload length in bytes | Last data packet may be smaller than chunk size |
+| `checksum` | 2 bytes | unsigned int | Internet checksum | Computed over header + payload, with checksum field zeroed during calculation |
+| `flags` | 1 byte | bit field | Control flags | `0x01` indicates EOF |
+| `payload` | 0 to ~1024 bytes | bytes | File data | Binary-safe; omitted for ACK packets and EOF marker |
+
+**Header layout in code:**  
+`struct.pack("!BBH", type, seq, len) + struct.pack("!H", checksum) + struct.pack("!B", flags)`
+
+---
+
+## 5) Data structures + module map
+
+### 5.1 Key data structures
+
+#### 1. Packet representation
+- **Fields:** type, seq, len, checksum, flags, payload
+- **Invariant:** checksum validates to zero when recomputed over the full packet
+- **Where it lives:** packet construction and parsing inside `rdt30_sender.py` and `rdt30_receiver.py`
+
+#### 2. Sender sequence state
+- **Fields:** current sequence number, timeout value, destination address
+- **Invariant:** sender sends exactly one unacknowledged packet at a time
+- **Where it lives:** `send_file()` and `send_with_retransmission()` in `rdt30_sender.py`
+
+#### 3. Receiver expected state
+- **Fields:** `expected_seq`, `last_ack_seq`
+- **Invariant:** receiver only writes payload when `seq == expected_seq` and packet is not corrupt
+- **Where it lives:** `run_receiver()` in `rdt30_receiver.py`
+
+#### 4. Injection configuration
+- **Fields:** `ack_error`, `ack_loss`, `data_error`, `data_loss`, `seed`
+- **Invariant:** probabilities remain in the range `[0.0, 1.0]`
+- **Where it lives:** sender and receiver CLI argument parsing
+
+#### 5. Experiment metrics structure
+- **Fields:** rate, per-run completion times, average completion time
+- **Invariant:** each plotted point represents the average of 5 runs at a single rate
+- **Where it lives:** `rows` and `times` in `rdt30_experiment.py`
+
+### 5.2 Module map + dependencies
+
+**Modules used in this phase:**
+- `rdt30_sender.py`
+- `rdt30_receiver.py`
+- `rdt30_experiment.py`
+
+**Dependency sketch:**
+
+```text
+rdt30_sender.py   -> socket, struct, random, time, argparse, os
+rdt30_receiver.py -> socket, struct, random, argparse
+rdt30_experiment.py -> subprocess, time, csv, math, argparse, matplotlib
+```
+
+**Logical dependency sketch:**
+
+```text
+sender   -> packet encode/decode, checksum, retransmission logic
+receiver -> packet encode/decode, checksum, in-order delivery logic
+experiment runner -> sender CLI, receiver CLI, CSV output, plot generation
+```
+
+---
+
+## 6) Protocol logic
+
+### 6.1 Sender behavior
+
+The sender implements stop-and-wait RDT 3.0 behavior with sequence numbers `0` and `1`.
+
+**Sender rules:**
+1. Open the input file and read it in fixed-size chunks (`--chunk`, default 1024 bytes).
+2. For each chunk:
+   - build a DATA packet with current sequence number
+   - send the packet
+   - wait for ACK using a socket timeout as the retransmission timer
+3. When an ACK arrives:
+   - verify the packet type is ACK
+   - verify checksum correctness
+   - verify the ACK sequence matches the outstanding DATA packet
+4. If the ACK is valid:
+   - accept it
+   - toggle the sender sequence number
+   - move to the next chunk
+5. If the ACK is corrupt, wrong, or intentionally lost:
+   - ignore it and keep waiting until timeout
+6. If timeout occurs:
+   - retransmit the same DATA packet
+7. After all payload chunks are sent:
+   - send an EOF DATA packet with zero-length payload and EOF flag
+   - wait until its ACK is received
+8. Terminate only after valid ACK for the EOF packet.
+
+**Sender pseudocode:**
+
+```text
+initialize socket, timeout, seq = 0
+open input file
+for each file chunk:
+    pkt = make DATA packet(seq, chunk)
+    while true:
+        send(pkt)
+        wait for ACK or timeout
+        if valid ACK for seq:
+            seq = 1 - seq
+            break
+        else:
+            retransmit same pkt
+
+eof_pkt = make DATA packet(seq, EOF flag, empty payload)
+while true:
+    send(eof_pkt)
+    wait for ACK or timeout
+    if valid ACK for seq:
+        break
+    else:
+        retransmit eof_pkt
+```
+
+### 6.2 Receiver behavior
+
+The receiver uses the same logical RDT 2.2 receiver behavior.
+
+**Receiver rules:**
+1. Wait for a UDP packet.
+2. Optionally simulate DATA loss or DATA corruption.
+3. Parse the packet header.
+4. If the packet is malformed or corrupt:
+   - send ACK for the last correctly received sequence number
+   - do not write data
+5. If packet type is not DATA:
+   - ignore it
+6. If DATA packet sequence number is not the expected sequence:
+   - send duplicate ACK for the last correctly received sequence number
+   - do not write payload
+7. If DATA packet is valid and expected:
+   - if EOF flag is set:
+     - ACK that sequence and terminate
+   - else:
+     - write payload to output file
+     - send ACK with the received sequence number
+     - update `last_ack_seq`
+     - toggle `expected_seq`
+
+**Receiver pseudocode:**
+
+```text
+expected_seq = 0
+last_ack_seq = 1
+
+while true:
+    receive packet
+    optionally drop or corrupt packet
+
+    if malformed or corrupt:
+        send ACK(last_ack_seq)
+        continue
+
+    if packet not DATA:
+        continue
+
+    if seq != expected_seq:
+        send ACK(last_ack_seq)
+        continue
+
+    if EOF flag set:
+        send ACK(seq)
+        break
+
+    write payload
+    send ACK(seq)
+    last_ack_seq = seq
+    expected_seq = 1 - expected_seq
+```
+
+### 6.3 Error/loss injection spec
+
+Phase 3 requires controlled fault injection, so we define the following:
+
+- **ACK corruption**
+  - **Where injected:** sender side, immediately after receiving an ACK from UDP and before validation
+  - **Mechanism:** flip one random bit in the ACK packet
+  - **Probability control:** `--ack-error`
+  - **Seed usage:** sender uses `--seed` (default 1)
+
+- **ACK loss**
+  - **Where injected:** sender side, immediately after receiving an ACK from UDP and before validation
+  - **Mechanism:** pretend the ACK never arrived by discarding it
+  - **Probability control:** `--ack-loss`
+  - **Seed usage:** sender uses `--seed` (default 1)
+
+- **DATA corruption**
+  - **Where injected:** receiver side, immediately after receiving a DATA packet from UDP and before checksum validation
+  - **Mechanism:** flip one random bit in the DATA packet
+  - **Probability control:** `--data-error`
+  - **Seed usage:** receiver uses `--seed` (default 2)
+
+- **DATA loss**
+  - **Where injected:** receiver side, immediately after receiving a DATA packet from UDP and before decoding
+  - **Mechanism:** drop the packet and do not process it
+  - **Probability control:** `--data-loss`
+  - **Seed usage:** receiver uses `--seed` (default 2)
+
+**Repeatability:**  
+Because sender and receiver each seed their RNG deterministically, repeated runs with identical inputs and parameters are reproducible enough for controlled comparison.
+
+---
+
+## 7) Experiments + metrics plan
+
+### 7.1 Measurement definition
+
+**Completion time** is defined as:
+- **Start moment:** immediately before the sender begins transmitting the file
+- **Stop moment:** immediately after the sender receives the final valid ACK for the EOF packet and exits
+
+This is already measured in the sender using `time.perf_counter()` and also externally by the experiment runner.
+
+To avoid distortion in timing:
+- verbose debug output is minimized during measurement runs
+- the same input file is used for every option
+- each error/loss rate is averaged over **5 runs**
+- rates are swept from **0% to 95% in 5% increments**
+- the receiver starts first, followed by the sender, for each run
+
+### 7.2 Output artifacts
+
+- **CSV schema:**
+  - `rate`
+  - `avg_time_s`
+
+- **Plot filenames:**
+  - `plot_option1.png`
+  - `plot_option2.png`
+  - `plot_option3.png`
+  - `plot_option4.png`
+  - `plot_option5.png`
+
+- **CSV filenames:**
+  - `results_option1.csv`
+  - `results_option2.csv`
+  - `results_option3.csv`
+  - `results_option4.csv`
+  - `results_option5.csv`
+
+- **Where outputs are stored:**  
+  Final repository copies are stored in `results/`
+
+---
+
+## 8) Edge cases + test plan
+
+### 8.1 Edge cases
+
+| Edge case | Why it matters | Expected behavior |
+|---|---|---|
+| Last packet smaller than payload size | Needed for correct file reconstruction | Receiver writes exact final byte count |
+| Duplicate DATA packet after timeout | Common in stop-and-wait retransmission | Receiver does not write duplicate payload and re-ACKs prior success |
+| Duplicate ACK packet | Can happen after retransmissions | Sender ignores ACKs for the wrong sequence |
+| Corrupted ACK header or payload | Core Phase 3 corruption case | Sender rejects ACK and retransmits after timeout |
+| Corrupted DATA packet | Must not write invalid bytes | Receiver drops packet and sends duplicate ACK |
+| Lost ACK packet | Main new Phase 3 feature | Sender times out and retransmits |
+| Lost DATA packet | Main new Phase 3 feature | Receiver never sees it, so sender times out and retransmits |
+| EOF packet lost or ACKed late | Important for clean termination | Sender keeps retransmitting EOF until properly ACKed |
+| Short malformed packet | Parser robustness | Receiver catches exception and sends duplicate ACK if possible |
+
+### 8.2 Tests
+
+**Unit-style checks**
+- Checksum correctness on known byte sequences
+- Packet encode/decode round-trip consistency
+- Corruption helper flips exactly one bit
+- EOF packet generation produces a zero-length DATA packet with EOF flag
+
+**Integration tests**
+- Send a file at 0% loss/error and verify the output hash matches the input hash
+- Run with ACK corruption enabled and verify successful transfer
+- Run with DATA corruption enabled and verify successful transfer
+- Run with ACK loss enabled and verify timeout-driven retransmission
+- Run with DATA loss enabled and verify timeout-driven retransmission
+- Verify final output file size matches original input size
+- Verify repeated runs with fixed seed produce stable results
+
+### 8.3 Test artifacts
+
+We produce:
+- minimal console logs from sender and receiver
+- output files for byte-for-byte comparison
+- CSV files for experiment runs
+- PNG plots for completion-time figures
+
+Testing support lives in:
+- `scripts/` for experiment automation
+- optional `tests/` directory if additional checks are added later
+
+---
+
+## 9) Repo structure + reproducibility
+
+At minimum, the repository contains:
+
+```text
+src/
+scripts/
+docs/
+results/
+README.md
+```
+
+**Placement of artifacts:**
+- **Design docs:** `docs/`
+- **Figures/plots + CSV:** `results/`
+- **Helper scripts:** `scripts/`
+- **Core protocol code:** `src/`
+
+**Reproducibility notes:**
+- fixed RNG seeds are used for sender and receiver
+- command-line flags fully define the experiment scenario
+- input file path, timeout, port, chunk size, and injection rate are configurable
+- the same experiment runner regenerates the required plots
+
+---
+
+## 10) Team plan, ownership, and milestones
+
+### 10.1 Task ownership
+
+| Task | Owner | Target date | Definition of done |
+|---|---|---|---|
+| Packet format + encode/decode validation | Daniel Burns | March 19, 2026 | Sender and receiver agree on header layout and checksum behavior |
+| Sender logic and retransmission timer | Chris Worthley | March 20, 2026 | Sender correctly recovers from bad/lost ACKs and completes EOF handling |
+| Receiver logic and in-order file reconstruction | Daniel Burns | March 20, 2026 | Receiver writes only valid expected data and handles duplicates safely |
+| Injection logic (ACK/Data corruption and loss) | Chris Worthley | March 21, 2026 | All four injection cases work through CLI flags and trigger correct recovery |
+| Figures/plots and experiment automation | Ashwin Srinivasan | March 22, 2026 | CSV and PNG outputs generated for all five required options |
+| README + reproducibility + final doc cleanup | Ashwin Srinivasan | March 23, 2026 | Repo instructions are clear enough for rerun by instructor/TA |
+| Demo recording + submission packaging | Chris Worthley | March 24, 2026 | Video outline, final artifacts, and submission files are complete |
+
+### 10.2 Milestones
+
+- **Milestone 1:** Core Phase 3 protocol behavior implemented and basic file transfer works under Option 1  
+- **Milestone 2:** All four injected failure modes are tested and recovered correctly  
+- **Milestone 3:** Experiments are completed, plots are generated, README is finalized, and demo is recorded  
+
+---
+
+## Appendix
+
+### A. Option mapping to implementation
+
+| Option | Implementation mapping |
+|---|---|
+| Option 1 | No flags enabled |
+| Option 2 | `rdt30_sender.py --ack-error RATE` |
+| Option 3 | `rdt30_receiver.py --data-error RATE` |
+| Option 4 | `rdt30_sender.py --ack-loss RATE` |
+| Option 5 | `rdt30_receiver.py --data-loss RATE` |
+
+### B. Current implementation files
+
+- `rdt30_sender.py`
+- `rdt30_receiver.py`
+- `rdt30_experiment.py`
+
+### C. Key protocol constants from current code
+
+- Header length: `7` bytes
+- Packet types: `TYPE_DATA = 0`, `TYPE_ACK = 1`
+- EOF flag: `FLAG_EOF = 0x01`
+- Default chunk size: `1024` bytes
+- Default timeout: `0.25` seconds
